@@ -6,13 +6,17 @@ const options = {
     info: {
       title: 'Node.js Auth API',
       version: '1.0.0',
-      description: 'JWT 기반 인증 API 문서',
+      description: 'JWT 기반 인증 API + SSO (Keycloak) 지원',
     },
     servers: [
       {
         url: `http://localhost:${process.env.PORT || 3000}`,
         description: '개발 서버',
       },
+    ],
+    tags: [
+      { name: 'Auth', description: 'JWT 기반 인증 API' },
+      { name: 'SSO', description: 'Keycloak SSO 인증 API (SSO_ENABLED=true 필요)' },
     ],
     components: {
       securitySchemes: {

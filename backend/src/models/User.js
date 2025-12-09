@@ -13,7 +13,10 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, '비밀번호는 필수입니다'],
+      required: function() {
+        // SSO 사용자는 비밀번호 불필요
+        return !this.ssoId;
+      },
       minlength: [8, '비밀번호는 최소 8자 이상이어야 합니다'],
       select: false, // 기본적으로 조회 시 비밀번호 제외
     },
@@ -22,6 +25,17 @@ const userSchema = new mongoose.Schema(
       required: [true, '이름은 필수입니다'],
       trim: true,
       maxlength: [50, '이름은 50자를 초과할 수 없습니다'],
+    },
+    // SSO 관련 필드
+    ssoId: {
+      type: String,
+      default: null,
+      sparse: true, // null 허용 unique
+    },
+    ssoProvider: {
+      type: String,
+      enum: ['keycloak', 'google', 'kakao', 'naver', null],
+      default: null,
     },
     refreshToken: {
       type: String,
@@ -44,8 +58,13 @@ const userSchema = new mongoose.Schema(
 
 // 비밀번호 해싱 (저장 전 자동 실행)
 userSchema.pre('save', async function (next) {
+  // SSO 사용자는 비밀번호 해싱 스킵
+  if (this.ssoId && !this.password) {
+    return next();
+  }
+
   // 비밀번호가 수정되지 않았으면 스킵
-  if (!this.isModified('password')) {
+  if (!this.isModified('password') || !this.password) {
     return next();
   }
 

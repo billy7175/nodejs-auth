@@ -6,6 +6,8 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const { notFoundHandler, globalErrorHandler } = require('./middlewares/errorHandler');
 const authRoutes = require('./routes/authRoutes');
+const ssoRoutes = require('./routes/ssoRoutes');
+const { isSsoEnabled, initKeycloak, getSessionMiddleware } = require('./config/keycloak');
 
 const app = express();
 
@@ -38,6 +40,30 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // ======================
+// SSO 설정 (Flag 기반)
+// ======================
+
+if (isSsoEnabled()) {
+  console.log('🔐 SSO 모드 활성화');
+  
+  // 세션 미들웨어 (SSO에 필요)
+  app.use(getSessionMiddleware());
+  
+  // Keycloak 초기화
+  const keycloak = initKeycloak();
+  
+  if (keycloak) {
+    // Keycloak 미들웨어 등록
+    app.use(keycloak.middleware({
+      logout: '/api/sso/logout',
+      admin: '/',
+    }));
+  }
+} else {
+  console.log('🔑 JWT 모드 (SSO 비활성화)');
+}
+
+// ======================
 // 라우트 설정
 // ======================
 
@@ -47,6 +73,7 @@ app.get('/health', (req, res) => {
     success: true,
     message: '서버가 정상 작동 중입니다',
     timestamp: new Date().toISOString(),
+    ssoEnabled: isSsoEnabled(),
   });
 });
 
@@ -62,8 +89,13 @@ app.get('/api-docs.json', (req, res) => {
   res.send(swaggerSpec);
 });
 
-// 인증 라우트
+// 인증 라우트 (JWT 기반)
 app.use('/api/auth', authRoutes);
+
+// SSO 라우트 (Keycloak) - SSO 활성화 시에만 등록
+if (isSsoEnabled()) {
+  app.use('/api/sso', ssoRoutes);
+}
 
 // ======================
 // 에러 핸들러

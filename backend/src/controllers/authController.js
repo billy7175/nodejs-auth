@@ -1,22 +1,53 @@
 const User = require('../models/User');
 const { generateTokens, verifyToken } = require('../utils/jwtUtils');
 const { successResponse, errorResponse } = require('../utils/responseUtils');
+const { isSsoEnabled } = require('../config/keycloak');
+const { createKeycloakUser, findKeycloakUser } = require('../utils/keycloakAdmin');
 
 /**
  * 회원가입
  * POST /api/auth/register
+ * 
+ * SSO 활성화 시: Keycloak에만 저장 (표준 패턴)
+ * SSO 비활성화 시: MongoDB에 저장 (일반 JWT 인증)
  */
 const register = async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
 
+    // SSO 활성화 시: Keycloak에만 저장 (표준 SSO 패턴)
+    if (isSsoEnabled()) {
+      try {
+        // Keycloak에 이미 존재하는지 확인
+        const keycloakUser = await findKeycloakUser(email);
+        if (keycloakUser) {
+          return errorResponse(res, 409, '이미 등록된 이메일입니다', null, 'KEYCLOAK_USER_EXISTS');
+        }
+
+        // Keycloak에 사용자 생성 (단일 소스)
+        const keycloakUserId = await createKeycloakUser(email, password, name);
+        console.log(`✅ Keycloak 사용자 생성 완료: ${email} (ID: ${keycloakUserId})`);
+
+        // MongoDB는 저장하지 않음 (SSO 로그인 시 자동 동기화됨)
+        return successResponse(res, 201, '회원가입이 완료되었습니다. SSO 로그인을 진행해주세요.', {
+          message: 'Keycloak에 등록되었습니다. /api/sso/login으로 로그인하세요.',
+          ssoEnabled: true,
+          loginUrl: '/api/sso/login',
+        });
+      } catch (error) {
+        console.error('Keycloak 사용자 생성 실패:', error.message);
+        return errorResponse(res, 500, '회원가입 처리 중 오류가 발생했습니다', null, 'KEYCLOAK_CREATE_ERROR');
+      }
+    }
+
+    // SSO 비활성화 시: MongoDB에 저장 (일반 JWT 인증)
     // 이메일 중복 확인
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return errorResponse(res, 409, '이미 등록된 이메일입니다', null, 'EMAIL_EXISTS');
     }
 
-    // 새 사용자 생성
+    // 내 DB에 사용자 생성
     const user = await User.create({
       email,
       password,
@@ -34,6 +65,7 @@ const register = async (req, res, next) => {
       user: user.toJSON(),
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
+      ssoEnabled: false,
     });
   } catch (error) {
     next(error);
