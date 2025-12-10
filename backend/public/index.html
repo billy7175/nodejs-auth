@@ -337,6 +337,22 @@
         // 로그인
         async function login(event) {
             event.preventDefault();
+            
+            // 다른 계정 로그인 시도 시 기존 상태 초기화
+            // (이전 로그인 시도가 2FA 단계에 남아있을 수 있음)
+            if (tempToken) {
+                tempToken = null;
+            }
+            
+            // 2FA 입력 단계가 열려있으면 닫기
+            const loginStep2 = document.getElementById('loginStep2');
+            const loginStep1 = document.getElementById('loginStep1');
+            if (loginStep2 && loginStep2.style.display !== 'none') {
+                loginStep2.style.display = 'none';
+                loginStep1.style.display = 'block';
+                document.getElementById('login2FACode').value = '';
+            }
+            
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
 
