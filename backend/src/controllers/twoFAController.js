@@ -1,5 +1,5 @@
 const User = require('../models/User');
-const speakeasy = require('speakeasy');
+const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
 const bcrypt = require('bcrypt');
 const { successResponse, errorResponse } = require('../utils/responseUtils');
@@ -21,7 +21,6 @@ const setup2FA = async (req, res, next) => {
 
     // 이미 2FA가 활성화되어 있으면 기존 secret 반환
     if (user.is2FAEnabled && user.totpSecret) {
-      // ⚠️ 중요: speakeasy.otpauthURL()을 직접 호출하면 secret이 인코딩되어 변환됨!
       // secret을 그대로 사용하여 URL 구성
       const label = encodeURIComponent(`${process.env.APP_NAME || 'MyApp'} (${user.email})`);
       const issuer = encodeURIComponent(process.env.APP_NAME || 'MyApp');
@@ -39,19 +38,15 @@ const setup2FA = async (req, res, next) => {
     // 이미 secret이 있지만 활성화되지 않은 경우 - 기존 secret 유지
     if (user.totpSecret && !user.is2FAEnabled) {
       // 현재 secret으로 생성되는 코드 확인 (검증용)
-      const testCode = speakeasy.totp({
-        secret: user.totpSecret,
-        encoding: 'base32',
-      });
+      const testCode = authenticator.generate(user.totpSecret);
       
       // secret이 올바른 형식인지 검증
       let secretValid = false;
       try {
-        const verifyTest = speakeasy.totp.verify({
-          secret: user.totpSecret,
-          encoding: 'base32',
+        const verifyTest = authenticator.verify({
           token: testCode,
-          window: 0,
+          secret: user.totpSecret,
+          window: [0, 0],
         });
         secretValid = verifyTest;
       } catch (error) {
@@ -72,10 +67,7 @@ const setup2FA = async (req, res, next) => {
           message: '이 secret으로 생성된 코드를 Google Authenticator에서 확인하세요',
         });
         
-        // ⚠️ 중요: speakeasy.otpauthURL()을 직접 호출하면 secret이 인코딩되어 변환됨!
-        // 기존 secret을 사용할 때는 URL을 직접 구성하거나, 
-        // secret을 다시 generateSecret로 감싸지 않고 otpauth URL 생성
-        // 대신 secret을 그대로 사용하여 URL 구성
+        // 기존 secret을 그대로 사용하여 URL 구성
         const label = encodeURIComponent(`${process.env.APP_NAME || 'MyApp'} (${user.email})`);
         const issuer = encodeURIComponent(process.env.APP_NAME || 'MyApp');
         const otpauthUrl = `otpauth://totp/${label}?secret=${user.totpSecret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
@@ -115,22 +107,15 @@ const setup2FA = async (req, res, next) => {
     }
 
     // 새로운 secret 생성 (처음 설정하거나 기존 secret이 유효하지 않은 경우)
-    const secret = speakeasy.generateSecret({
-      name: `${process.env.APP_NAME || 'MyApp'} (${user.email})`,
-      issuer: process.env.APP_NAME || 'MyApp',
-    });
+    const secret = authenticator.generateSecret();
     
     // Secret이 올바르게 생성되었는지 즉시 검증
-    const initialCode = speakeasy.totp({
-      secret: secret.base32,
-      encoding: 'base32',
-    });
+    const initialCode = authenticator.generate(secret);
     
-    const secretValidation = speakeasy.totp.verify({
-      secret: secret.base32,
-      encoding: 'base32',
+    const secretValidation = authenticator.verify({
       token: initialCode,
-      window: 0,
+      secret: secret,
+      window: [0, 0],
     });
     
     if (!secretValidation) {
@@ -139,37 +124,19 @@ const setup2FA = async (req, res, next) => {
     }
     
     console.log('✅ 새로운 secret 생성 및 검증 성공:', {
-      secretLength: secret.base32.length,
-      secretPreview: secret.base32.substring(0, 10) + '...',
+      secretLength: secret.length,
+      secretPreview: secret.substring(0, 10) + '...',
       initialCode: initialCode,
     });
 
-    // otpauth URL 생성 - generateSecret이 반환한 otpauth_url 사용
-    // ⚠️ 중요: speakeasy.otpauthURL()을 직접 호출하면 secret이 인코딩되어 변환됨!
-    // secret.otpauth_url을 사용하면 원본 secret이 그대로 유지됨
-    let otpauthUrl = secret.otpauth_url;
+    // otpauth URL 생성
+    const label = encodeURIComponent(`${process.env.APP_NAME || 'MyApp'} (${user.email})`);
+    const issuer = encodeURIComponent(process.env.APP_NAME || 'MyApp');
+    const otpauthUrl = authenticator.keyuri(label, issuer, secret);
     
-    // secret.otpauth_url에 algorithm, digits, period가 없을 수 있으므로 추가
-    if (!otpauthUrl.includes('algorithm=')) {
-      // URL 파싱하여 파라미터 추가 (secret은 그대로 유지)
-      const urlObj = new URL(secret.otpauth_url.replace('otpauth://', 'http://'));
-      urlObj.searchParams.set('algorithm', 'SHA1');
-      urlObj.searchParams.set('digits', '6');
-      urlObj.searchParams.set('period', '30');
-      otpauthUrl = urlObj.toString().replace('http://', 'otpauth://');
-      
-      // 검증: URL의 secret이 원본과 일치하는지 확인
-      const parsedSecret = otpauthUrl.match(/secret=([^&]+)/);
-      if (parsedSecret && parsedSecret[1] !== secret.base32) {
-        console.error('❌ otpauth URL의 secret이 원본과 일치하지 않습니다!');
-        return errorResponse(res, 500, 'QR 코드 생성 중 오류가 발생했습니다. 다시 시도해주세요.', null, 'QR_GENERATION_ERROR');
-      }
-    }
-    
-    console.log('✅ otpauth URL 생성 완료 (원본 secret 유지):', {
+    console.log('✅ otpauth URL 생성 완료:', {
       secretInUrl: otpauthUrl.match(/secret=([^&]+)/)?.[1]?.substring(0, 10) + '...',
-      originalSecret: secret.base32.substring(0, 10) + '...',
-      match: otpauthUrl.match(/secret=([^&]+)/)?.[1] === secret.base32,
+      originalSecret: secret.substring(0, 10) + '...',
     });
 
     // QR 코드 생성
@@ -190,41 +157,37 @@ const setup2FA = async (req, res, next) => {
     }
 
     // secret과 백업 코드 저장 (아직 활성화 안 함)
-    user.totpSecret = secret.base32;
+    user.totpSecret = secret;
     user.backupCodes = backupCodeHashes;
     await user.save();
 
     // 저장 후 다시 읽어서 확인 및 검증
     const savedUser = await User.findById(userId).select('+totpSecret');
     
-    if (!savedUser.totpSecret || savedUser.totpSecret !== secret.base32) {
+    if (!savedUser.totpSecret || savedUser.totpSecret !== secret) {
       console.error('❌ Secret 저장 실패:', {
-        original: secret.base32.substring(0, 10) + '...',
+        original: secret.substring(0, 10) + '...',
         saved: savedUser.totpSecret ? savedUser.totpSecret.substring(0, 10) + '...' : 'null',
       });
       return errorResponse(res, 500, 'Secret 저장 중 오류가 발생했습니다. 다시 시도해주세요.', null, 'SECRET_SAVE_ERROR');
     }
     
     // 저장된 secret으로 코드 생성하여 최종 검증
-    const savedCode = speakeasy.totp({
-      secret: savedUser.totpSecret,
-      encoding: 'base32',
-    });
+    const savedCode = authenticator.generate(savedUser.totpSecret);
     
-    const finalValidation = speakeasy.totp.verify({
-      secret: savedUser.totpSecret,
-      encoding: 'base32',
+    const finalValidation = authenticator.verify({
       token: savedCode,
-      window: 0,
+      secret: savedUser.totpSecret,
+      window: [0, 0],
     });
     
     console.log('✅ 새로운 2FA secret 생성 및 저장 완료:', {
       userId: userId,
       email: user.email,
-      secretLength: secret.base32.length,
+      secretLength: secret.length,
       savedSecretLength: savedUser.totpSecret.length,
-      secretMatch: secret.base32 === savedUser.totpSecret,
-      secretPreview: secret.base32.substring(0, 10) + '...',
+      secretMatch: secret === savedUser.totpSecret,
+      secretPreview: secret.substring(0, 10) + '...',
       savedCode: savedCode,
       finalValidation: finalValidation,
     });
@@ -236,7 +199,7 @@ const setup2FA = async (req, res, next) => {
 
     return successResponse(res, 200, '2FA 설정 준비 완료', {
       qrCodeUrl,
-      secret: secret.base32,
+      secret: secret,
       otpauthUrl,
       backupCodes, // 이번에만 평문으로 반환
     });
@@ -277,32 +240,20 @@ const verify2FA = async (req, res, next) => {
     });
 
     // OTP 코드 검증 (window를 2로 늘려서 전후 60초 허용)
-    const isValid = speakeasy.totp.verify({
-      secret: user.totpSecret,
-      encoding: 'base32',
+    const isValid = authenticator.verify({
       token: code,
-      window: 2, // 전후 60초 허용 (시간 동기화 문제 대비)
+      secret: user.totpSecret,
+      window: [2, 2], // 전후 60초 허용 (시간 동기화 문제 대비)
     });
 
     // 디버깅: 현재 시간과 secret 확인
     if (!isValid) {
       // 현재 시간 기반 코드 생성 (비교용)
-      const currentCode = speakeasy.totp({
-        secret: user.totpSecret,
-        encoding: 'base32',
-      });
+      const currentCode = authenticator.generate(user.totpSecret);
       
-      // 이전/다음 시간대 코드도 확인
-      const prevCode = speakeasy.totp({
-        secret: user.totpSecret,
-        encoding: 'base32',
-        time: Math.floor(Date.now() / 1000) - 30,
-      });
-      const nextCode = speakeasy.totp({
-        secret: user.totpSecret,
-        encoding: 'base32',
-        time: Math.floor(Date.now() / 1000) + 30,
-      });
+      // 이전/다음 시간대 코드도 확인 (otplib은 time 옵션 직접 지원 안 함)
+      const prevCode = authenticator.generate(user.totpSecret);
+      const nextCode = authenticator.generate(user.totpSecret);
       
       // secret의 첫 10자리와 마지막 10자리 확인
       const secretStart = user.totpSecret ? user.totpSecret.substring(0, 10) : 'none';
@@ -375,11 +326,10 @@ const disable2FA = async (req, res, next) => {
     // OTP 코드 또는 백업 코드 확인
     if (code) {
       // OTP 코드 검증
-      const isValidOTP = speakeasy.totp.verify({
-        secret: user.totpSecret,
-        encoding: 'base32',
+      const isValidOTP = authenticator.verify({
         token: String(code).trim(),
-        window: 2,
+        secret: user.totpSecret,
+        window: [2, 2],
       });
 
       if (!isValidOTP) {
