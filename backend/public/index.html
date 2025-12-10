@@ -157,6 +157,103 @@
             margin-bottom: 10px;
             color: #1976d2;
         }
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        .status-badge.enabled {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status-badge.disabled {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        .status-badge.loading {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .two-fa-section {
+            margin-bottom: 20px;
+        }
+        .two-fa-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        button.danger {
+            background: #f44336;
+        }
+        button.danger:hover {
+            background: #d32f2f;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        .modal-content h3 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .modal-content p {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .modal-actions button {
+            flex: 1;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .info-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .info-item strong {
+            color: #333;
+            margin-right: 10px;
+        }
     </style>
 </head>
 <body>
@@ -234,6 +331,12 @@
         <!-- 내 정보 -->
         <div id="profile" class="tab-content">
             <h2>내 정보</h2>
+            <div id="profileInfo" style="display: none; margin-bottom: 20px;">
+                <div class="info-item">
+                    <strong>2FA 상태:</strong>
+                    <span id="profile2FAStatus">확인 중...</span>
+                </div>
+            </div>
             <button onclick="getProfile()">정보 조회</button>
             <button onclick="updateProfile()" style="margin-top: 10px;">정보 수정</button>
             <div id="profileResult"></div>
@@ -242,9 +345,51 @@
         <!-- 2FA 설정 -->
         <div id="2fa" class="tab-content">
             <h2>2FA 설정</h2>
-            <p style="color: #666; margin-bottom: 20px;">2FA 기능이 구현되면 여기서 테스트할 수 있습니다.</p>
-            <button onclick="setup2FA()">2FA 설정 시작</button>
+            
+            <!-- 2FA 상태 표시 -->
+            <div id="2faStatusSection" class="two-fa-section">
+                <div id="2faStatusBadge" class="status-badge loading">
+                    <span class="loading-spinner"></span>
+                    <span id="2faStatusText">상태 확인 중...</span>
+                </div>
+            </div>
+
+            <!-- 2FA 비활성화 상태 UI -->
+            <div id="2faDisabled" style="display: none;">
+                <p style="color: #666; margin-bottom: 20px;">2FA가 비활성화되어 있습니다. 보안을 강화하려면 2FA를 활성화하세요.</p>
+                <button onclick="setup2FA()">2FA 설정 시작</button>
+            </div>
+
+            <!-- 2FA 활성화 상태 UI -->
+            <div id="2faEnabled" style="display: none;">
+                <p style="color: #666; margin-bottom: 20px;">✅ 2FA가 활성화되어 있습니다. 계정 보안이 강화되었습니다.</p>
+                <button onclick="disable2FA()" class="danger">2FA 비활성화</button>
+            </div>
+
             <div id="2faResult"></div>
+        </div>
+
+        <!-- 2FA 비활성화 모달 -->
+        <div id="disable2FAModal" class="modal">
+            <div class="modal-content">
+                <h3>2FA 비활성화</h3>
+                <p>보안을 위해 비밀번호와 2FA 코드를 입력해주세요.</p>
+                <form onsubmit="confirmDisable2FA(event)">
+                    <div class="form-group">
+                        <label>비밀번호</label>
+                        <input type="password" id="disable2FAPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label>2FA 코드 (6자리)</label>
+                        <input type="text" id="disable2FACode" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="submit" class="danger">비활성화</button>
+                        <button type="button" onclick="cancelDisable2FA()" style="background: #999;">취소</button>
+                    </div>
+                </form>
+                <div id="disable2FAResult" style="margin-top: 15px;"></div>
+            </div>
         </div>
 
         <div class="links">
@@ -272,6 +417,11 @@
             if (element) element.classList.add('active');
             const content = document.getElementById(tabName);
             if (content) content.classList.add('active');
+            
+            // 2FA 탭으로 전환 시 상태 확인
+            if (tabName === '2fa') {
+                check2FAStatus();
+            }
         }
 
         // API 호출 헬퍼
@@ -378,6 +528,7 @@
                     localStorage.setItem('accessToken', accessToken);
                     localStorage.setItem('refreshToken', refreshToken);
                     updateUserInfo(data.user);
+                    check2FAStatus(); // 2FA 상태 확인
                     showResult('loginResult', result.data, true);
                 }
             } else {
@@ -408,6 +559,7 @@
                 localStorage.setItem('accessToken', accessToken);
                 localStorage.setItem('refreshToken', refreshToken);
                 updateUserInfo(data.user);
+                check2FAStatus(); // 2FA 상태 확인
                 
                 // 2단계 숨기고 1단계 표시 (다음 로그인을 위해)
                 document.getElementById('loginStep2').style.display = 'none';
@@ -434,6 +586,7 @@
         async function getProfile() {
             if (!accessToken) {
                 showResult('profileResult', { error: '로그인이 필요합니다.' }, false);
+                document.getElementById('profileInfo').style.display = 'none';
                 return;
             }
 
@@ -442,8 +595,21 @@
             if (result.ok && result.data.success) {
                 showResult('profileResult', result.data, true);
                 updateUserInfo(result.data.data.user);
+                
+                // 2FA 상태 표시
+                const user = result.data.data.user;
+                const profileInfo = document.getElementById('profileInfo');
+                const profile2FAStatus = document.getElementById('profile2FAStatus');
+                
+                if (user) {
+                    profileInfo.style.display = 'block';
+                    const is2FAEnabled = user.is2FAEnabled || false;
+                    profile2FAStatus.textContent = is2FAEnabled ? '✅ 활성화됨' : '❌ 비활성화됨';
+                    profile2FAStatus.style.color = is2FAEnabled ? '#2e7d32' : '#e65100';
+                }
             } else {
                 showResult('profileResult', result.data || result, false);
+                document.getElementById('profileInfo').style.display = 'none';
                 if (result.status === 401) {
                     // 토큰 만료 시 로그아웃
                     logout();
@@ -474,6 +640,57 @@
             }
         }
 
+        // 2FA 상태 확인
+        async function check2FAStatus() {
+            if (!accessToken) {
+                update2FAStatusUI(null);
+                return;
+            }
+
+            try {
+                const result = await apiCall('/api/auth/me');
+                if (result.ok && result.data.success) {
+                    const is2FAEnabled = result.data.data.user?.is2FAEnabled || false;
+                    update2FAStatusUI(is2FAEnabled);
+                    return is2FAEnabled;
+                } else {
+                    update2FAStatusUI(null);
+                    return null;
+                }
+            } catch (error) {
+                update2FAStatusUI(null);
+                return null;
+            }
+        }
+
+        // 2FA 상태에 따른 UI 업데이트
+        function update2FAStatusUI(is2FAEnabled) {
+            const statusBadge = document.getElementById('2faStatusBadge');
+            const statusText = document.getElementById('2faStatusText');
+            const enabledDiv = document.getElementById('2faEnabled');
+            const disabledDiv = document.getElementById('2faDisabled');
+
+            if (is2FAEnabled === null) {
+                // 로그인 안 됨 또는 오류
+                statusBadge.className = 'status-badge disabled';
+                statusText.textContent = '로그인이 필요합니다';
+                enabledDiv.style.display = 'none';
+                disabledDiv.style.display = 'none';
+            } else if (is2FAEnabled) {
+                // 활성화됨
+                statusBadge.className = 'status-badge enabled';
+                statusText.textContent = '활성화됨';
+                enabledDiv.style.display = 'block';
+                disabledDiv.style.display = 'none';
+            } else {
+                // 비활성화됨
+                statusBadge.className = 'status-badge disabled';
+                statusText.textContent = '비활성화됨';
+                enabledDiv.style.display = 'none';
+                disabledDiv.style.display = 'block';
+            }
+        }
+
         // 2FA 설정
         async function setup2FA() {
             if (!accessToken) {
@@ -493,6 +710,58 @@
             }
         }
 
+        // 2FA 비활성화 모달 열기
+        function disable2FA() {
+            const modal = document.getElementById('disable2FAModal');
+            modal.classList.add('active');
+            document.getElementById('disable2FAPassword').value = '';
+            document.getElementById('disable2FACode').value = '';
+            document.getElementById('disable2FAResult').innerHTML = '';
+        }
+
+        // 2FA 비활성화 확인
+        async function confirmDisable2FA(event) {
+            event.preventDefault();
+            
+            if (!accessToken) {
+                showResult('disable2FAResult', { error: '로그인이 필요합니다.' }, false);
+                return;
+            }
+
+            const password = document.getElementById('disable2FAPassword').value;
+            const code = document.getElementById('disable2FACode').value.replace(/\s/g, '');
+
+            if (!password || !code || code.length !== 6) {
+                showResult('disable2FAResult', { error: '비밀번호와 6자리 2FA 코드를 모두 입력해주세요.' }, false);
+                return;
+            }
+
+            const result = await apiCall('/api/auth/2fa/disable', {
+                method: 'POST',
+                body: JSON.stringify({ password, code })
+            });
+
+            if (result.ok && result.data.success) {
+                showResult('disable2FAResult', { success: true, message: '2FA가 비활성화되었습니다.' }, true);
+                setTimeout(() => {
+                    cancelDisable2FA();
+                    check2FAStatus(); // 상태 업데이트
+                    showResult('2faResult', { success: true, message: '2FA가 비활성화되었습니다.' }, true);
+                }, 1500);
+            } else {
+                showResult('disable2FAResult', result.data || result, false);
+            }
+        }
+
+        // 2FA 비활성화 취소
+        function cancelDisable2FA() {
+            const modal = document.getElementById('disable2FAModal');
+            modal.classList.remove('active');
+            document.getElementById('disable2FAPassword').value = '';
+            document.getElementById('disable2FACode').value = '';
+            document.getElementById('disable2FAResult').innerHTML = '';
+        }
+
         // 로그아웃
         async function logout() {
             if (accessToken) {
@@ -503,6 +772,8 @@
             localStorage.removeItem('accessToken');
             localStorage.removeItem('refreshToken');
             document.getElementById('userInfo').style.display = 'none';
+            document.getElementById('profileInfo').style.display = 'none';
+            update2FAStatusUI(null); // 2FA 상태 초기화
             showResult('loginResult', { message: '로그아웃되었습니다.' }, true);
         }
 
@@ -525,6 +796,9 @@
         window.addEventListener('load', () => {
             if (accessToken) {
                 getProfile();
+                check2FAStatus(); // 2FA 상태 확인
+            } else {
+                update2FAStatusUI(null);
             }
         });
     </script>
