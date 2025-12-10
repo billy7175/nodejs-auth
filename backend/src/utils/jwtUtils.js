@@ -89,11 +89,60 @@ const decodeToken = (token) => {
   }
 };
 
+/**
+ * 임시 토큰 생성 (2FA 검증 전용)
+ * @param {Object} payload - 토큰에 담을 데이터
+ * @returns {string} 임시 토큰 (5분 유효)
+ */
+const generateTempToken = (payload) => {
+  return jwt.sign(
+    {
+      ...payload,
+      type: 'temp',
+    },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: '5m', // 2FA 입력을 위한 5분 유효
+    }
+  );
+};
+
+/**
+ * 임시 토큰 검증
+ * @param {string} token - 검증할 임시 토큰
+ * @returns {Object} 디코딩된 토큰 데이터
+ */
+const verifyTempToken = (token) => {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== 'temp') {
+      const err = new Error('임시 토큰이 아닙니다');
+      err.code = 'INVALID_TOKEN_TYPE';
+      throw err;
+    }
+    return decoded;
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      const err = new Error('임시 토큰이 만료되었습니다');
+      err.code = 'TEMP_TOKEN_EXPIRED';
+      throw err;
+    }
+    if (error.name === 'JsonWebTokenError') {
+      const err = new Error('유효하지 않은 임시 토큰입니다');
+      err.code = 'INVALID_TEMP_TOKEN';
+      throw err;
+    }
+    throw error;
+  }
+};
+
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
   generateTokens,
   verifyToken,
   decodeToken,
+  generateTempToken,
+  verifyTempToken,
 };
 

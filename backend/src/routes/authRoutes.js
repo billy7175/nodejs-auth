@@ -63,6 +63,42 @@ router.post('/login', validateLogin, authController.login);
 
 /**
  * @swagger
+ * /api/auth/login/2fa:
+ *   post:
+ *     summary: 2FA 로그인 검증
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - tempToken
+ *               - code
+ *             properties:
+ *               tempToken:
+ *                 type: string
+ *                 description: 로그인 시 받은 임시 토큰
+ *               code:
+ *                 type: string
+ *                 description: Google Authenticator에서 받은 6자리 코드
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: 입력값 오류
+ *       401:
+ *         description: 유효하지 않은 임시 토큰 또는 2FA 코드
+ */
+router.post('/login/2fa', authController.login2FA);
+
+/**
+ * @swagger
  * /api/auth/logout:
  *   post:
  *     summary: 로그아웃

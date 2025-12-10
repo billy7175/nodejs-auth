@@ -201,17 +201,33 @@
         <!-- 로그인 -->
         <div id="login" class="tab-content">
             <h2>로그인</h2>
-            <form onsubmit="login(event)">
-                <div class="form-group">
-                    <label>이메일</label>
-                    <input type="email" id="loginEmail" required>
-                </div>
-                <div class="form-group">
-                    <label>비밀번호</label>
-                    <input type="password" id="loginPassword" required>
-                </div>
-                <button type="submit">로그인</button>
-            </form>
+            <!-- 1단계: 이메일/비밀번호 입력 -->
+            <div id="loginStep1">
+                <form onsubmit="login(event)">
+                    <div class="form-group">
+                        <label>이메일</label>
+                        <input type="email" id="loginEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호</label>
+                        <input type="password" id="loginPassword" required>
+                    </div>
+                    <button type="submit">로그인</button>
+                </form>
+            </div>
+            <!-- 2단계: 2FA 코드 입력 -->
+            <div id="loginStep2" style="display: none;">
+                <h3>2FA 인증</h3>
+                <p style="color: #666; margin-bottom: 20px;">Google Authenticator에서 6자리 코드를 입력해주세요.</p>
+                <form onsubmit="verify2FALogin(event)">
+                    <div class="form-group">
+                        <label>2FA 코드</label>
+                        <input type="text" id="login2FACode" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required>
+                    </div>
+                    <button type="submit">인증 완료</button>
+                    <button type="button" onclick="cancel2FALogin()" style="margin-top: 10px; background: #999;">취소</button>
+                </form>
+            </div>
             <div id="loginResult"></div>
         </div>
 
@@ -315,6 +331,9 @@
             }
         }
 
+        // 임시 토큰 저장 (2FA 로그인용)
+        let tempToken = null;
+
         // 로그인
         async function login(event) {
             event.preventDefault();
@@ -327,15 +346,72 @@
             });
 
             if (result.ok && result.data.success) {
-                showResult('loginResult', result.data, true);
-                accessToken = result.data.data.accessToken;
-                refreshToken = result.data.data.refreshToken;
-                localStorage.setItem('accessToken', accessToken);
-                localStorage.setItem('refreshToken', refreshToken);
-                updateUserInfo(result.data.data.user);
+                const data = result.data.data;
+                
+                // 2FA가 필요한 경우
+                if (data.requires2FA && data.tempToken) {
+                    tempToken = data.tempToken;
+                    // 1단계 숨기고 2단계 표시
+                    document.getElementById('loginStep1').style.display = 'none';
+                    document.getElementById('loginStep2').style.display = 'block';
+                    showResult('loginResult', { message: '2FA 코드를 입력해주세요' }, true);
+                } else {
+                    // 2FA 불필요: 바로 로그인 완료
+                    accessToken = data.accessToken;
+                    refreshToken = data.refreshToken;
+                    localStorage.setItem('accessToken', accessToken);
+                    localStorage.setItem('refreshToken', refreshToken);
+                    updateUserInfo(data.user);
+                    showResult('loginResult', result.data, true);
+                }
             } else {
                 showResult('loginResult', result.data || result, false);
             }
+        }
+
+        // 2FA 로그인 검증
+        async function verify2FALogin(event) {
+            event.preventDefault();
+            const code = document.getElementById('login2FACode').value;
+
+            if (!tempToken) {
+                showResult('loginResult', { error: '임시 토큰이 없습니다. 다시 로그인해주세요.' }, false);
+                cancel2FALogin();
+                return;
+            }
+
+            const result = await apiCall('/api/auth/login/2fa', {
+                method: 'POST',
+                body: JSON.stringify({ tempToken, code })
+            });
+
+            if (result.ok && result.data.success) {
+                const data = result.data.data;
+                accessToken = data.accessToken;
+                refreshToken = data.refreshToken;
+                localStorage.setItem('accessToken', accessToken);
+                localStorage.setItem('refreshToken', refreshToken);
+                updateUserInfo(data.user);
+                
+                // 2단계 숨기고 1단계 표시 (다음 로그인을 위해)
+                document.getElementById('loginStep2').style.display = 'none';
+                document.getElementById('loginStep1').style.display = 'block';
+                document.getElementById('login2FACode').value = '';
+                tempToken = null;
+                
+                showResult('loginResult', result.data, true);
+            } else {
+                showResult('loginResult', result.data || result, false);
+            }
+        }
+
+        // 2FA 로그인 취소
+        function cancel2FALogin() {
+            document.getElementById('loginStep2').style.display = 'none';
+            document.getElementById('loginStep1').style.display = 'block';
+            document.getElementById('login2FACode').value = '';
+            tempToken = null;
+            document.getElementById('loginResult').innerHTML = '';
         }
 
         // 내 정보 조회
