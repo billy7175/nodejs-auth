@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FA 설정 - Node.js Auth</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .qr-container {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .qr-code {
+            max-width: 300px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .qr-code img {
+            width: 100%;
+            height: auto;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            text-align: center;
+            letter-spacing: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .result.success {
+            background: #e8f5e9;
+            border-left-color: #4caf50;
+        }
+        .result.error {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+        .backup-codes {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+        }
+        .backup-codes code {
+            display: block;
+            margin: 5px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .links {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .links a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        .step {
+            margin-bottom: 30px;
+        }
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 2FA 설정</h1>
+        <p class="subtitle">Google Authenticator로 QR 코드를 스캔하세요</p>
+
+        <div id="setupStep" class="step">
+            <button id="startSetupBtn" onclick="start2FASetup()">2FA 설정 시작</button>
+            <button id="resetBtn" onclick="reset2FA()" style="margin-top: 10px; background: #f44336;">2FA 초기화 (문제 해결용)</button>
+            <div id="setupResult"></div>
+        </div>
+
+        <div id="verifyStep" class="step" style="display: none;">
+            <div class="step">
+                <span class="step-number">1</span>
+                <strong>QR 코드를 스캔하세요</strong>
+            </div>
+            <div id="qrContainer" class="qr-container"></div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <strong>생성된 6자리 코드를 입력하세요</strong>
+            </div>
+            <div class="form-group">
+                <label>OTP 코드</label>
+                <input type="text" id="otpCode" maxlength="6" placeholder="000000" pattern="[0-9]{6}">
+            </div>
+            <button onclick="verify2FA()">검증 및 활성화</button>
+            <div id="verifyResult"></div>
+        </div>
+
+        <div id="backupCodes" style="display: none;"></div>
+
+        <div class="links">
+            <a href="/">← 메인 페이지로</a>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let accessToken = localStorage.getItem('accessToken');
+        let secret = null;
+        let backupCodes = [];
+
+        // API 호출 헬퍼
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            if (accessToken) {
+                headers['Authorization'] = `Bearer ${accessToken}`;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers
+                });
+
+                const data = await response.json();
+                return { ok: response.ok, status: response.status, data };
+            } catch (error) {
+                return { ok: false, error: error.message };
+            }
+        }
+
+        // 결과 표시
+        function showResult(elementId, result, isSuccess = true) {
+            const element = document.getElementById(elementId);
+            element.className = `result ${isSuccess ? 'success' : 'error'}`;
+            element.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        // 2FA 설정 시작
+        async function start2FASetup() {
+            if (!accessToken) {
+                showResult('setupResult', { error: '로그인이 필요합니다. 메인 페이지에서 로그인하세요.' }, false);
+                return;
+            }
+
+            // 중복 호출 방지: 버튼 비활성화
+            const setupButton = document.getElementById('startSetupBtn');
+            if (setupButton) {
+                setupButton.disabled = true;
+                setupButton.textContent = '설정 중...';
+            }
+
+            try {
+                const result = await apiCall('/api/auth/2fa/setup', {
+                    method: 'POST'
+                });
+
+                if (result.ok && result.data.success) {
+                    const data = result.data.data;
+                    
+                    // 기존 secret이 있는 경우 경고
+                    if (data.existingSecret) {
+                        const shouldContinue = confirm(
+                            '⚠️ 이미 설정 중인 2FA가 있습니다.\n\n' +
+                            'Google Authenticator의 코드가 맞지 않다면:\n' +
+                            '1. "2FA 초기화" 버튼을 먼저 클릭하세요\n' +
+                            '2. Google Authenticator에서 계정 삭제\n' +
+                            '3. 다시 "2FA 설정 시작" 클릭\n\n' +
+                            '기존 설정을 계속 진행하시겠습니까?'
+                        );
+                        
+                        if (!shouldContinue) {
+                            if (setupButton) {
+                                setupButton.disabled = false;
+                                setupButton.textContent = '2FA 설정 시작';
+                            }
+                            return;
+                        }
+                    }
+
+                    secret = data.secret;
+                    const qrCodeUrl = data.qrCodeUrl;
+                    backupCodes = data.backupCodes || [];
+
+                    // QR 코드 표시
+                    const qrContainer = document.getElementById('qrContainer');
+                    qrContainer.innerHTML = `
+                        <div class="qr-code">
+                            <img src="${qrCodeUrl}" alt="QR Code">
+                        </div>
+                        <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                            Google Authenticator 앱에서 QR 코드를 스캔하세요
+                        </p>
+                        ${data.hint ? `<p style="margin-top: 10px; color: #999; font-size: 12px;">💡 ${data.hint}</p>` : ''}
+                    `;
+
+                    // 백업 코드 표시
+                    if (backupCodes.length > 0) {
+                        const backupContainer = document.getElementById('backupCodes');
+                        backupContainer.style.display = 'block';
+                        backupContainer.innerHTML = `
+                            <div class="backup-codes">
+                                <strong>⚠️ 백업 코드 (안전한 곳에 보관하세요)</strong>
+                                ${backupCodes.map(code => `<code>${code}</code>`).join('')}
+                            </div>
+                        `;
+                    }
+
+                    document.getElementById('setupStep').style.display = 'none';
+                    document.getElementById('verifyStep').style.display = 'block';
+                } else {
+                    showResult('setupResult', result.data || result, false);
+                    if (setupButton) {
+                        setupButton.disabled = false;
+                        setupButton.textContent = '2FA 설정 시작';
+                    }
+                }
+            } catch (error) {
+                showResult('setupResult', { error: error.message }, false);
+                if (setupButton) {
+                    setupButton.disabled = false;
+                    setupButton.textContent = '2FA 설정 시작';
+                }
+            }
+        }
+
+        // 2FA 검증
+        async function verify2FA() {
+            // 공백 제거 및 숫자만 추출
+            let code = document.getElementById('otpCode').value.replace(/\s/g, '').replace(/\D/g, '');
+            
+            if (!code || code.length !== 6) {
+                showResult('verifyResult', { error: '6자리 숫자 코드를 입력하세요.' }, false);
+                return;
+            }
+
+            console.log('입력한 코드:', code);
+            
+            const result = await apiCall('/api/auth/2fa/verify', {
+                method: 'POST',
+                body: JSON.stringify({ code })
+            });
+
+            if (result.ok && result.data.success) {
+                showResult('verifyResult', {
+                    success: true,
+                    message: '2FA가 성공적으로 활성화되었습니다!'
+                }, true);
+                
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 2000);
+            } else {
+                showResult('verifyResult', result.data || result, false);
+            }
+        }
+
+        // 2FA 초기화
+        async function reset2FA() {
+            if (!accessToken) {
+                showResult('setupResult', { error: '로그인이 필요합니다.' }, false);
+                return;
+            }
+
+            if (!confirm('2FA를 초기화하시겠습니까? Google Authenticator에서 계정을 삭제하고 새로 스캔해야 합니다.')) {
+                return;
+            }
+
+            // 버튼 비활성화
+            const resetButton = document.getElementById('resetBtn');
+            if (resetButton) {
+                resetButton.disabled = true;
+                resetButton.textContent = '초기화 중...';
+            }
+
+            try {
+                const result = await apiCall('/api/auth/2fa/reset', {
+                    method: 'POST'
+                });
+
+                if (result.ok && result.data.success) {
+                    showResult('setupResult', {
+                        success: true,
+                        message: '2FA가 초기화되었습니다. 이제 "2FA 설정 시작" 버튼을 클릭하여 새로 설정하세요.'
+                    }, true);
+                    
+                    // Google Authenticator에서 계정 삭제 안내
+                    alert('Google Authenticator 앱에서 등록한 계정을 삭제한 후, "2FA 설정 시작" 버튼을 클릭하세요.');
+                    
+                    // QR 코드 및 검증 단계 숨기기
+                    document.getElementById('qrContainer').innerHTML = '';
+                    document.getElementById('verifyStep').style.display = 'none';
+                    document.getElementById('setupStep').style.display = 'block';
+                } else {
+                    showResult('setupResult', result.data || result, false);
+                }
+            } catch (error) {
+                showResult('setupResult', { error: error.message }, false);
+            } finally {
+                if (resetButton) {
+                    resetButton.disabled = false;
+                    resetButton.textContent = '2FA 초기화 (문제 해결용)';
+                }
+            }
+        }
+
+        // 페이지 로드 시 토큰 확인
+        window.addEventListener('load', () => {
+            if (!accessToken) {
+                document.getElementById('setupStep').innerHTML = `
+                    <div class="result error">
+                        <p>로그인이 필요합니다.</p>
+                        <a href="/" style="color: #667eea; text-decoration: underline;">메인 페이지에서 로그인하세요</a>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
+

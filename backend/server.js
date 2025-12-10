@@ -18,6 +18,7 @@ const startServer = async () => {
       console.log('🚀 ========================================');
       console.log('');
       console.log(`   📌 환경: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`   📌 프론트엔드: http://localhost:${PORT}/`);
       console.log(`   📌 API: http://localhost:${PORT}/api`);
       console.log(`   📌 Swagger: http://localhost:${PORT}/api-docs`);
       console.log(`   📌 Health: http://localhost:${PORT}/health`);

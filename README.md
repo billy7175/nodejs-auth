@@ -72,8 +72,21 @@ CORS_ORIGIN=http://localhost:3000
 서버 실행 후 Swagger UI에서 API 문서를 확인할 수 있습니다:
 
 ```
-http://localhost:3000/api-docs
+http://localhost:4000/api-docs
 ```
+
+## 🌐 프론트엔드 테스트 페이지
+
+서버 실행 후 브라우저에서 테스트 페이지에 접속할 수 있습니다:
+
+```
+http://localhost:4000/
+```
+
+**사용 가능한 페이지:**
+- 메인 페이지: `http://localhost:4000/` (회원가입, 로그인, 내 정보)
+- 2FA 설정: `http://localhost:4000/2fa-setup.html`
+- Passkey 테스트: `http://localhost:4000/passkey.html`
 
 ## 🔗 API 엔드포인트
 
@@ -124,8 +137,15 @@ curl -X GET http://localhost:3000/api/auth/me \
 
 ## 📖 문서
 
-- [기본 설계 문서](./docs/ARCHITECTURE.md)
+> **📚 [문서 인덱스](./docs/README.md)** - 모든 문서를 카테고리별로 정리한 가이드
+
+### 주요 문서
+
+- [기본 설계 문서](./docs/ARCHITECTURE.md) - JWT, 비밀번호 암호화 등 기본 구조
 - [고급 인증 문서](./docs/ADVANCED_AUTH.md) - OTP, Passkey, 소셜 로그인 등
+- [2FA 가이드](./docs/2FA_GUIDE.md) - 2단계 인증 사용법
+- [SSO 설정](./docs/SSO_SETUP.md) - Keycloak SSO 설정 방법
+- [테스트 가이드](./docs/NO_UI_TESTING.md) - 프론트엔드 없이 테스트하는 방법
 
 ## 📝 라이선스
 

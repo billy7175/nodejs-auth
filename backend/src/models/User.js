@@ -36,6 +36,30 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // 2FA 관련 필드
+    totpSecret: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    is2FAEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    backupCodes: [{
+      codeHash: {
+        type: String,
+        required: true,
+      },
+      used: {
+        type: Boolean,
+        default: false,
+      },
+      usedAt: {
+        type: Date,
+        default: null,
+      },
+    }],
   },
   {
     timestamps: true, // createdAt, updatedAt 자동 생성
@@ -68,6 +92,8 @@ userSchema.methods.toJSON = function () {
   const user = this.toObject();
   delete user.password;
   delete user.refreshToken;
+  delete user.totpSecret; // 2FA secret은 절대 반환하지 않음
+  delete user.backupCodes; // 백업 코드는 해시이지만 보안상 제거
   delete user.__v;
   return user;
 };

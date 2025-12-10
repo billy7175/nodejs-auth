@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passkey 테스트 - Node.js Auth</title>
+    <script src="https://cdn.jsdelivr.net/npm/@simplewebauthn/browser@9.0.0/dist/bundle/index.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 15px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .result.success {
+            background: #e8f5e9;
+            border-left-color: #4caf50;
+        }
+        .result.error {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+        .result pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 12px;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #1976d2;
+        }
+        .links {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .links a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        .divider {
+            margin: 30px 0;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 Passkey 테스트</h1>
+        <p class="subtitle">WebAuthn을 사용한 비밀번호 없는 로그인</p>
+
+        <div class="info">
+            <strong>⚠️ 주의:</strong> Passkey 기능이 구현되어야 동작합니다. 
+            현재는 예시 페이지입니다.
+        </div>
+
+        <h2>등록</h2>
+        <button onclick="registerPasskey()">Passkey 등록</button>
+
+        <div class="divider"></div>
+
+        <h2>로그인</h2>
+        <div class="form-group">
+            <label>사용자 ID 또는 이메일</label>
+            <input type="text" id="loginUserId" placeholder="user@example.com" style="margin-top: 10px; padding: 12px; width: 100%; border: 2px solid #e0e0e0; border-radius: 8px;">
+        </div>
+        <button onclick="loginWithPasskey()">Passkey로 로그인</button>
+
+        <div id="result"></div>
+
+        <div class="links">
+            <a href="/">← 메인 페이지로</a>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const { SimpleWebAuthnBrowser } = SimpleWebAuthn;
+
+        // API 호출 헬퍼
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers
+                });
+
+                const data = await response.json();
+                return { ok: response.ok, status: response.status, data };
+            } catch (error) {
+                return { ok: false, error: error.message };
+            }
+        }
+
+        // 결과 표시
+        function showResult(result, isSuccess = true) {
+            const element = document.getElementById('result');
+            element.className = `result ${isSuccess ? 'success' : 'error'}`;
+            element.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        // Passkey 등록
+        async function registerPasskey() {
+            try {
+                // 1. 등록 옵션 가져오기
+                showResult({ message: '등록 옵션을 가져오는 중...' }, true);
+                
+                const userId = prompt('사용자 ID 또는 이메일을 입력하세요:');
+                if (!userId) return;
+
+                const optionsRes = await apiCall('/api/auth/passkey/register/options', {
+                    method: 'POST',
+                    body: JSON.stringify({ userId })
+                });
+
+                if (!optionsRes.ok || !optionsRes.data.success) {
+                    showResult(optionsRes.data || { error: '등록 옵션을 가져올 수 없습니다.' }, false);
+                    return;
+                }
+
+                // 2. 브라우저에서 Passkey 생성
+                showResult({ message: '생체인식 또는 보안 키를 사용하세요...' }, true);
+
+                const credential = await SimpleWebAuthnBrowser.startRegistration(
+                    optionsRes.data.data
+                );
+
+                // 3. 서버로 전송
+                const verifyRes = await apiCall('/api/auth/passkey/register/verify', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId,
+                        credential
+                    })
+                });
+
+                if (verifyRes.ok && verifyRes.data.success) {
+                    showResult({
+                        success: true,
+                        message: 'Passkey가 성공적으로 등록되었습니다!',
+                        data: verifyRes.data.data
+                    }, true);
+                } else {
+                    showResult(verifyRes.data || { error: '등록에 실패했습니다.' }, false);
+                }
+            } catch (error) {
+                showResult({ error: error.message }, false);
+            }
+        }
+
+        // Passkey로 로그인
+        async function loginWithPasskey() {
+            try {
+                const userId = document.getElementById('loginUserId').value;
+                if (!userId) {
+                    showResult({ error: '사용자 ID를 입력하세요.' }, false);
+                    return;
+                }
+
+                // 1. 로그인 옵션 가져오기
+                showResult({ message: '로그인 옵션을 가져오는 중...' }, true);
+
+                const optionsRes = await apiCall('/api/auth/passkey/login/options', {
+                    method: 'POST',
+                    body: JSON.stringify({ userId })
+                });
+
+                if (!optionsRes.ok || !optionsRes.data.success) {
+                    showResult(optionsRes.data || { error: '로그인 옵션을 가져올 수 없습니다.' }, false);
+                    return;
+                }
+
+                // 2. 브라우저에서 Passkey 인증
+                showResult({ message: '생체인식 또는 보안 키를 사용하세요...' }, true);
+
+                const assertion = await SimpleWebAuthnBrowser.startAuthentication(
+                    optionsRes.data.data
+                );
+
+                // 3. 서버로 전송
+                const verifyRes = await apiCall('/api/auth/passkey/login/verify', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId,
+                        assertion
+                    })
+                });
+
+                if (verifyRes.ok && verifyRes.data.success) {
+                    // 토큰 저장
+                    if (verifyRes.data.data.accessToken) {
+                        localStorage.setItem('accessToken', verifyRes.data.data.accessToken);
+                        localStorage.setItem('refreshToken', verifyRes.data.data.refreshToken);
+                    }
+
+                    showResult({
+                        success: true,
+                        message: 'Passkey 로그인 성공!',
+                        data: verifyRes.data.data
+                    }, true);
+
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 2000);
+                } else {
+                    showResult(verifyRes.data || { error: '로그인에 실패했습니다.' }, false);
+                }
+            } catch (error) {
+                showResult({ error: error.message }, false);
+            }
+        }
+
+        // WebAuthn 지원 확인
+        window.addEventListener('load', () => {
+            if (!window.PublicKeyCredential) {
+                document.getElementById('result').innerHTML = `
+                    <div class="result error">
+                        <p>이 브라우저는 WebAuthn을 지원하지 않습니다.</p>
+                        <p>Chrome, Firefox, Safari, Edge 최신 버전을 사용하세요.</p>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
+
