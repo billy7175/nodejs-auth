@@ -124,22 +124,61 @@ const refreshToken = async (req, res, next) => {
     }
 
     // 사용자 조회 및 저장된 Refresh Token 확인
-    const user = await User.findById(decoded.userId).select('+refreshToken');
+    const user = await User.findById(decoded.userId).select('+refreshToken +refreshTokenHistory');
 
     if (!user) {
       return errorResponse(res, 401, '사용자를 찾을 수 없습니다', null, 'USER_NOT_FOUND');
-    }
-
-    if (user.refreshToken !== token) {
-      return errorResponse(res, 401, '유효하지 않은 Refresh Token입니다', null, 'INVALID_TOKEN');
     }
 
     if (!user.isActive) {
       return errorResponse(res, 403, '비활성화된 계정입니다', null, 'ACCOUNT_DISABLED');
     }
 
+
+    // Rotation: 재사용 감지 - 히스토리에 있는 토큰인지 확인
+    const isTokenInHistory = user.refreshTokenHistory?.some(
+      (historyItem) => historyItem.token === token
+    );
+
+    if (isTokenInHistory) {
+      // 재사용 공격 감지: 모든 토큰 무효화
+      user.refreshToken = null;
+      user.refreshTokenHistory = [];
+      await user.save({ validateBeforeSave: false });
+
+      return errorResponse(
+        res,
+        401,
+        '토큰 재사용이 감지되었습니다. 보안을 위해 모든 세션이 무효화되었습니다. 다시 로그인해주세요.',
+        null,
+        'TOKEN_REUSE_DETECTED'
+      );
+    }
+
+    // 현재 유효한 Refresh Token과 비교
+    if (user.refreshToken !== token) {
+      return errorResponse(res, 401, '유효하지 않은 Refresh Token입니다', null, 'INVALID_TOKEN');
+    }
+
     // 새 토큰 생성
     const tokens = generateTokens(user);
+
+    // Rotation: 사용된 토큰을 히스토리에 추가
+    const currentToken = user.refreshToken;
+    if (currentToken) {
+      if (!user.refreshTokenHistory) {
+        user.refreshTokenHistory = [];
+      }
+      user.refreshTokenHistory.push({
+        token: currentToken, // 현재 사용된 토큰
+        usedAt: new Date(),
+      });
+
+      // 히스토리 크기 제한 (최근 10개만 유지)
+      if (user.refreshTokenHistory.length > 10) {
+        user.refreshTokenHistory = user.refreshTokenHistory.slice(-10);
+      }
+    }
 
     // 새 Refresh Token 저장
     user.refreshToken = tokens.refreshToken;

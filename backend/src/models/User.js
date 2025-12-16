@@ -28,6 +28,17 @@ const userSchema = new mongoose.Schema(
       default: null,
       select: false,
     },
+    // Refresh Token Rotation을 위한 히스토리
+    refreshTokenHistory: [{
+      token: {
+        type: String,
+        required: true,
+      },
+      usedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
     isActive: {
       type: Boolean,
       default: true,
