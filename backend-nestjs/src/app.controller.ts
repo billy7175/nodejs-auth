@@ -11,7 +11,7 @@ export class AppController {
   }
 
   @Get('test')
-  getTest(): { message: string } {
-    return { message: 'Test API is working' };
+  getTest(): string {
+    return this.appService.getTest();
   }
 }
