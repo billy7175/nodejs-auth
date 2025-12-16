@@ -9,4 +9,9 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  @Get('test')
+  getTest(): { message: string } {
+    return { message: 'Test API is working' };
+  }
 }
