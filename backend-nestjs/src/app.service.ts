@@ -1,17 +1,45 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
+import { DatabaseService } from './database/database.service';
 
 @Injectable()
 export class AppService {
+  constructor(private readonly databaseService: DatabaseService) {}
   hello(): string {
     return 'Hello World!';
   }
   test(): string {
     return 'Test API is working';
   }
-  create(email: string, password: string) {
-    // TODO: 실제 회원가입 로직 구현 (password 해싱 등)
-    void password; // 나중에 사용 예정
-    return { message: 'User registered successfully', email };
+  async create(email: string, password: string, name: string) {
+    // 이메일 중복 체크
+    const existingUser = await this.databaseService.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email],
+    );
+
+    if (existingUser.rows.length > 0) {
+      throw new ConflictException('이미 존재하는 이메일입니다.');
+    }
+
+    // DB에 저장
+    const result = await this.databaseService.query(
+      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, created_at, name',
+      [email, password, name],
+    );
+
+    const user = result.rows[0] as {
+      id: string;
+      email: string;
+      created_at: Date;
+      name: string;
+    };
+    console.log('#user', user);
+    return {
+      message: 'User registered successfully',
+      email: user.email,
+      id: user.id,
+      name: user.name,
+    };
   }
   findOne(id: string) {
     return { id, message: `User ${id} found` };

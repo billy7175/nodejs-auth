@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 class CreateUserDto {
   email: string;
   password: string;
+  name: string;
 }
 
 @Controller()
@@ -23,8 +24,10 @@ export class AppController {
   @Post('signup')
   // @Body() 데코레이터: 클라이언트가 POST 요청 시 body에 보낸 JSON 데이터를 자동으로 파싱하여 받아옴
   // 예: { "email": "user@example.com", "password": "password123" }
-  create(@Body() body: CreateUserDto): { message: string; email: string } {
-    return this.appService.create(body.email, body.password);
+  create(
+    @Body() body: CreateUserDto,
+  ): Promise<{ message: string; email: string; id: string; name: string }> {
+    return this.appService.create(body.email, body.password, body.name);
   }
 
   // @Param() 데코레이터: URL 경로에 포함된 동적 파라미터를 받아옴 *단일 파라미터만
